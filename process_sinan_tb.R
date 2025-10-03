@@ -1,6 +1,6 @@
 #'-------------------------------------------------------------------
 #' Curso: Epidemiologia descritiva aplicada à tuberculose
-#' Função única: carrega .dbc de TB e processa/rotula as variáveis
+#' Função única: carrega .dbc/.csv de TB e processa/rotula as variáveis
 #' Autor: José Mário Nunes da Silva Ph.d
 #' Contato: zemariu@usp.br
 #'-------------------------------------------------------------------
