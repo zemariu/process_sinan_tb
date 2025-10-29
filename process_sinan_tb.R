@@ -149,7 +149,7 @@ process_sinan_tb <- function(
     OUTRAS       = c("/"="Ignorado","1"="Sim","2"="Não","9"="Ignorado"),
     TRAT_SUPER   = c("0"="Ignorado","1"="Sim","2"="Não","9"="Ignorado"),
     TRATSUP_AT   = c("0"="Ignorado","1"="Sim","2"="Não","4"="Ignorado","9"="Ignorado"),
-    DOENCA_TR    = c("/"="Ignorado","1"="Sim","2"="Não","9"="Ignorado"),
+    DOENCA_TRA   = c("/"="Ignorado","1"="Sim","2"="Não","9"="Ignorado"),
     BACILOSC_1   = c("0"="Ignorado","1"="Positiva","2"="Negativa","3"="Não realizada","4"="Não se aplica","9"="Ignorado"),
     BACILOSC_2   = c("0"="Ignorado","1"="Positiva","2"="Negativa","3"="Não realizada","4"="Não se aplica","9"="Ignorado"),
     BACILOSC_3   = c("0"="Ignorado","1"="Positiva","2"="Negativa","3"="Não realizada","4"="Não se aplica","9"="Ignorado"),
@@ -178,7 +178,19 @@ process_sinan_tb <- function(
   # ---- Processador interno ----
   processar_sinan_tb_inner <- function(data) {
     data <- tibble::as_tibble(data)
-
+    
+    # Númericas
+    num_vars <- intersect(c("NU_ANO","ID_MUNICIP","ID_REGIONA","ANO_NASC",
+                            "ID_MN_RESI","ID_RG_RESI","NU_CONTATO","NU_COMU_EX",
+                            "UF_TRANSF", "MUN_TRANSF"), names(data))
+    if (length(num_vars)) {
+      data <- dplyr::mutate(
+        data,
+        dplyr::across(
+          dplyr::all_of(num_vars),
+          ~ suppressWarnings(as.numeric(as.character(.x)))))
+    }
+    
     # Datas
     date_vars <- intersect(c("DT_NOTIFIC","DT_DIAG","DT_DIGITA","DT_TRANSUS","DT_TRANSDM","DT_TRANSSM","DT_TRANSRM","DT_TRANSRS","DT_TRANSSE","DT_INIC_TR","DT_NOTI_AT","DT_MUDANCA","DT_ENCERRA"), names(data))
     if (length(date_vars) > 0) {
@@ -196,27 +208,27 @@ process_sinan_tb <- function(
       )
     }
 
-    # UF/Região – residência (sem criar SG_UF_COD)
+    # UF/Região – residência 
     if ("SG_UF" %in% names(data)) {
       sguf_code <- dplyr::recode(as.character(data$SG_UF), !!!as.list(label_to_code), .default = as.character(data$SG_UF), .missing = NA_character_)
       data <- dplyr::mutate(
         data,
         REGIAO_RES = dplyr::recode(sguf_code, !!!as.list(region_map), .default = NA_character_, .missing = "Ignorado"),
         REGIAO_RES = base::factor(REGIAO_RES, levels = c("Norte","Nordeste","Sudeste","Sul","Centro-Oeste","Ignorado")),
-        UF_RES     = base::factor(sguf_code, levels = names(uf_names)),
+        UF_RES     = suppressWarnings(as.numeric(as.character(sguf_code))), 
         SG_UF      = dplyr::recode(sguf_code, !!!as.list(uf_names), .default = NA_character_, .missing = "Ignorado"),
         SG_UF      = base::factor(SG_UF)
       )
     }
 
-    # UF/Região – notificação (sem criar SG_UF_NOT_COD)
+    # UF/Região – notificação
     if ("SG_UF_NOT" %in% names(data)) {
       sguf_not_code <- dplyr::recode(as.character(data$SG_UF_NOT), !!!as.list(label_to_code), .default = as.character(data$SG_UF_NOT), .missing = NA_character_)
       data <- dplyr::mutate(
         data,
         REGIAO_NOT = dplyr::recode(sguf_not_code, !!!as.list(region_map), .default = NA_character_, .missing = "Ignorado"),
         REGIAO_NOT = base::factor(REGIAO_NOT, levels = c("Norte","Nordeste","Sudeste","Sul","Centro-Oeste","Ignorado")),
-        UF_NOT     = base::factor(sguf_not_code, levels = names(uf_names)),
+        UF_NOT     = suppressWarnings(as.numeric(as.character(sguf_not_code))), 
         SG_UF_NOT  = dplyr::recode(sguf_not_code, !!!as.list(uf_names), .default = NA_character_, .missing = "Ignorado"),
         SG_UF_NOT  = base::factor(SG_UF_NOT)
       )
@@ -397,37 +409,45 @@ process_sinan_tb <- function(
   for (i in seq_along(anos)) {
     ano <- anos[i]
     base <- paste0("TUBEBR", substr(as.character(ano), 3, 4))
-    caminho_csv <- file.path(directory, paste0(base, ".csv"))
     caminho_dbc <- file.path(directory, paste0(base, ".dbc"))
+    caminho_csv <- file.path(directory, paste0(base, ".csv"))
 
-    tem_csv <- file.exists(caminho_csv)
     tem_dbc <- file.exists(caminho_dbc)
+    tem_csv <- file.exists(caminho_csv)
 
-    if (!tem_csv && !tem_dbc) {
+    if (!tem_dbc && !tem_csv) {
       if (!quiet) message("Arquivo não encontrado (csv/dbc): ", base)
       next
     }
 
-    if (!quiet) message("Processando arquivo: ", if (tem_csv) basename(caminho_csv) else basename(caminho_dbc))
+    if (!quiet) message("Processando arquivo: ", if (tem_dbc) basename(caminho_dbc) else basename(caminho_csv))
 
     # leitura
-    banco <- NULL
-    if (tem_csv) {
-      # CSV exportado do SINAN/DBF: supomos separador vírgula e UTF-8
-      banco <- tryCatch(
-        utils::read.csv(caminho_csv, stringsAsFactors = FALSE, encoding = "UTF-8", na.strings = c("", "NA")),
-        error = function(e) { message("Erro ao ler CSV: ", basename(caminho_csv), " -> ", e$message); NULL }
-      )
-    } else {
-      # DBC requer read.dbc
+    if (tem_dbc) {
+      # DBC requer o pacote read.dbc
       if (!requireNamespace("read.dbc", quietly = TRUE)) {
         message("Pacote 'read.dbc' não instalado e apenas DBC disponível: ", basename(caminho_dbc))
         next
       }
       banco <- tryCatch(
         read.dbc::read.dbc(caminho_dbc),
-        error = function(e) { message("Erro ao ler DBC: ", basename(caminho_dbc), " -> ", e$message); NULL }
+        error = function(e) {
+          message("Erro ao ler DBC: ", basename(caminho_dbc), " -> ", e$message)
+          NULL
+        }
       )
+    } else if (tem_csv) {
+      # CSV exportado do SINAN/DBF: separador vírgula e UTF-8
+      banco <- tryCatch(
+        utils::read.csv(caminho_csv, stringsAsFactors = FALSE, encoding = "UTF-8", na.strings = c("", "NA")),
+        error = function(e) {
+          message("Erro ao ler CSV: ", basename(caminho_csv), " -> ", e$message)
+          NULL
+        }
+      )
+    } else {
+      message("Nenhum arquivo CSV ou DBC encontrado para: ", base)
+      next
     }
     if (is.null(banco)) next
 
