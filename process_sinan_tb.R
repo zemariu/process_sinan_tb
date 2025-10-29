@@ -170,7 +170,7 @@ process_sinan_tb <- function(
   # --- Helpers (sem usar !!!) ---
   relevel_to <- function(x, lev, na_as = "Ignorado", ordered = FALSE) {
     x <- base::as.factor(x)
-    x <- forcats::fct_explicit_na(x, na_level = na_as)
+    x <- forcats::fct_na_value_to_level(x, level = na_as)
     x <- forcats::fct_expand(x, lev)
     do.call(forcats::fct_relevel, c(list(x), as.list(lev)))
   }
